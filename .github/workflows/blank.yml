@@ -1,0 +1,226 @@
+name: Facebook Auto Comment Bot
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+    # Run at specific times (9 AM and 9 PM UTC+7 = 2 AM and 2 PM UTC)
+    - cron: '0 2,14 * * *'
+  
+  workflow_dispatch:
+    inputs:
+      target_feed:
+        description: 'Target Feed'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - friends
+        - videos
+        - groups
+      comment_limit:
+        description: 'Comment Limit (per feed)'
+        required: false
+        default: '5'
+      dry_run:
+        description: 'Dry Run (no actual comments)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      should-run: ${{ steps.check.outputs.should-run }}
+    steps:
+      - name: Validate inputs
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ secrets.FACEBOOK_COOKIES }}" != "" ]; then
+            echo "should-run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-run=false" >> $GITHUB_OUTPUT
+            echo "❌ FACEBOOK_COOKIES secret not configured"
+          fi
+
+  run-bot:
+    needs: validate-inputs
+    if: needs.validate-inputs.outputs.should-run == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: |
+          npm ci
+          # Install Puppeteer browser
+          npx puppeteer browsers install chrome
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libnss3 \
+            libatk-bridge2.0-0 \
+            libx11-xcb1 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            libgbm1 \
+            libxss1 \
+            libasound2 \
+            fonts-liberation \
+            libappindicator3-1 \
+            libdrm2 \
+            libgtk-3-0 \
+            libnspr4 \
+            libnss3 \
+            libxtst6 \
+            xdg-utils
+      
+      - name: Create required directories and files
+        run: |
+          mkdir -p logs
+          touch ceklink.txt
+          
+          # Create empty group_links.txt if not exists
+          if [ ! -f group_links.txt ]; then
+            echo "https://www.facebook.com/groups/digitalmarketingindonesia" > group_links.txt
+            echo "https://www.facebook.com/groups/entrepreneurindonesia" >> group_links.txt
+          fi
+          
+          # Create empty comments.txt if not exists
+          if [ ! -f comments.txt ]; then
+            echo "Nice post! 👍" > comments.txt
+            echo "---" >> comments.txt
+            echo "Great content!" >> comments.txt
+          fi
+      
+      - name: Setup configuration
+        run: |
+          # Override config based on inputs
+          if [ "${{ github.event.inputs.target_feed }}" = "friends" ]; then
+            jq '.features = {"auto_comment_friend": true, "auto_comment_video": false, "auto_comment_group": false}' config.json > config.tmp && mv config.tmp config.json
+          elif [ "${{ github.event.inputs.target_feed }}" = "videos" ]; then
+            jq '.features = {"auto_comment_friend": false, "auto_comment_video": true, "auto_comment_group": false}' config.json > config.tmp && mv config.tmp config.json
+          elif [ "${{ github.event.inputs.target_feed }}" = "groups" ]; then
+            jq '.features = {"auto_comment_friend": false, "auto_comment_video": false, "auto_comment_group": true}' config.json > config.tmp && mv config.tmp config.json
+          fi
+          
+          # Override comment limits if specified
+          if [ "${{ github.event.inputs.comment_limit }}" != "" ]; then
+            LIMIT="${{ github.event.inputs.comment_limit }}"
+            jq --arg limit "$LIMIT" '.comment_limits = {"friends_feed": ($limit | tonumber), "video_feed": ($limit | tonumber), "group_feed": ($limit | tonumber)}' config.json > config.tmp && mv config.tmp config.json
+          fi
+          
+          echo "📋 Final configuration:"
+          cat config.json
+      
+      - name: Setup Gemini API Keys
+        run: |
+          # Create gemini_api_keys.txt from secrets
+          echo "${{ secrets.GEMINI_API_KEYS }}" > gemini_api_keys.txt
+          
+          # Count API keys
+          KEY_COUNT=$(grep -c "^AIzaSy" gemini_api_keys.txt || echo "0")
+          echo "🤖 Found $KEY_COUNT Gemini API keys"
+          
+          if [ "$KEY_COUNT" -eq "0" ]; then
+            echo "⚠️ No valid Gemini API keys found"
+            echo "AIzaSyDUMMY_KEY_REPLACE_WITH_REAL_ONE" > gemini_api_keys.txt
+          fi
+      
+      - name: Setup Facebook Cookies
+        run: |
+          # Create cookies.json from secrets
+          echo '${{ secrets.FACEBOOK_COOKIES }}' > cookies.json
+          
+          # Validate cookies format
+          if jq empty cookies.json 2>/dev/null; then
+            COOKIE_COUNT=$(jq '. | length' cookies.json)
+            echo "🍪 Loaded $COOKIE_COUNT Facebook cookies"
+          else
+            echo "❌ Invalid cookies format"
+            exit 1
+          fi
+      
+      - name: Run test
+        run: npm test
+      
+      - name: Run Facebook Bot
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            echo "🧪 Dry run mode - bot will not post actual comments"
+            export DRY_RUN=true
+          fi
+          
+          echo "🚀 Starting Facebook Auto Comment Bot..."
+          timeout 25m npm start || echo "⚠️ Bot execution completed or timed out"
+        env:
+          FACEBOOK_COOKIES: ${{ secrets.FACEBOOK_COOKIES }}
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          NODE_ENV: production
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+      
+      - name: Upload bot logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bot-logs-${{ github.run_id }}
+          path: |
+            logs/
+            ceklink.txt
+          retention-days: 7
+      
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## 📊 Bot Execution Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run ID**: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Time**: $(date)" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "logs/bot-$(date +%Y-%m-%d).log" ]; then
+            echo "- **Log File**: Available in artifacts" >> $GITHUB_STEP_SUMMARY
+            
+            # Extract summary from logs
+            COMMENTS_POSTED=$(grep -c "Successfully commented" logs/bot-$(date +%Y-%m-%d).log || echo "0")
+            echo "- **Comments Posted**: $COMMENTS_POSTED" >> $GITHUB_STEP_SUMMARY
+            
+            # Show last few log entries
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📄 Recent Log Entries:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -10 logs/bot-$(date +%Y-%m-%d).log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Status**: No log file generated" >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Cleanup sensitive files
+        if: always()
+        run: |
+          rm -f cookies.json
+          rm -f gemini_api_keys.txt
+          echo "🧹 Sensitive files cleaned up"
+
+  cleanup:
+    needs: run-bot
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup old artifacts
+        run: |
+          echo "🧹 Cleanup job completed"
+          # This step can be extended to clean up old artifacts via GitHub API
