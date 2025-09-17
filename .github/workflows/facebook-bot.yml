@@ -2,11 +2,8 @@ name: Facebook Auto Comment Bot
 
 on:
   schedule:
-    # Run every 6 hours
-    - cron: '0 */6 * * *'
-    # Run at 9 AM and 9 PM WIB (2 AM and 2 PM UTC)
-    - cron: '0 2,14 * * *'
-  
+    - cron: '0 */6 * * *'    # setiap 6 jam
+    - cron: '0 2,14 * * *'   # jam 9 pagi dan 9 malam WIB (2 AM dan 2 PM UTC)
   workflow_dispatch:
     inputs:
       target_feed:
@@ -18,7 +15,6 @@ on:
           - all
           - friends
           - videos
-          - groups
       comment_limit:
         description: 'Comment Limit (per feed)'
         required: false
@@ -49,23 +45,21 @@ jobs:
     needs: validate-inputs
     if: needs.validate-inputs.outputs.should-run == 'true'
     runs-on: ubuntu-latest
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: |
           npm ci
-          # Install Puppeteer Chrome browser
           npx puppeteer browsers install chrome
-      
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -87,44 +81,31 @@ jobs:
             libnspr4 \
             libxtst6 \
             xdg-utils
-      
+
       - name: Create required directories and files
         run: |
           mkdir -p logs
           touch ceklink.txt
-          
-          # Create group_links.txt if missing
-          if [ ! -f group_links.txt ]; then
-            echo "https://www.facebook.com/groups/digitalmarketingindonesia" > group_links.txt
-            echo "https://www.facebook.com/groups/entrepreneurindonesia" >> group_links.txt
-          fi
-          
-          # Create comments.txt if missing
           if [ ! -f comments.txt ]; then
             echo "Nice post! 👍" > comments.txt
             echo "---" >> comments.txt
             echo "Great content!" >> comments.txt
           fi
-      
+
       - name: Setup configuration
         run: |
-          # Override target feed based on inputs
           if [ "${{ github.event.inputs.target_feed }}" = "friends" ]; then
             jq '.features = {"auto_comment_friend": true, "auto_comment_video": false, "auto_comment_group": false}' config.json > config.tmp && mv config.tmp config.json
           elif [ "${{ github.event.inputs.target_feed }}" = "videos" ]; then
             jq '.features = {"auto_comment_friend": false, "auto_comment_video": true, "auto_comment_group": false}' config.json > config.tmp && mv config.tmp config.json
-          elif [ "${{ github.event.inputs.target_feed }}" = "groups" ]; then
-            jq '.features = {"auto_comment_friend": false, "auto_comment_video": false, "auto_comment_group": true}' config.json > config.tmp && mv config.tmp config.json
           fi
-          
-          # Override comment limits if specified
           if [ "${{ github.event.inputs.comment_limit }}" != "" ]; then
             LIMIT="${{ github.event.inputs.comment_limit }}"
-            jq --arg limit "$LIMIT" '.comment_limits = {"friends_feed": ($limit | tonumber), "video_feed": ($limit | tonumber), "group_feed": ($limit | tonumber)}' config.json > config.tmp && mv config.tmp config.json
+            jq --arg limit "$LIMIT" '.comment_limits = {"friends_feed": ($limit | tonumber), "video_feed": ($limit | tonumber), "group_feed": 0}' config.json > config.tmp && mv config.tmp config.json
           fi
           echo "📋 Final configuration:"
           cat config.json
-      
+
       - name: Setup Gemini API Keys
         run: |
           echo "${{ secrets.GEMINI_API_KEYS }}" > gemini_api_keys.txt
@@ -134,7 +115,7 @@ jobs:
             echo "⚠️ No valid Gemini API keys found"
             echo "AIzaSyDUMMY_KEY_REPLACE_WITH_REAL_ONE" > gemini_api_keys.txt
           fi
-      
+
       - name: Setup Facebook Cookies
         run: |
           echo '${{ secrets.FACEBOOK_COOKIES }}' > cookies.json
@@ -145,25 +126,52 @@ jobs:
             echo "❌ Invalid cookies format"
             exit 1
           fi
-      
+
       - name: Run test
         run: npm test
-      
-      - name: Run Facebook Bot
+
+      - name: Run Facebook Bot and generate summary
         run: |
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            echo "🧪 Dry run mode - bot will not post actual comments"
-            export DRY_RUN=true
+          echo "## 📊 Bot Execution Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Run ID: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Target: Friends Feed & Video Feed Only (Groups Disabled)" >> $GITHUB_STEP_SUMMARY
+          echo "- Running Facebook Auto Comment Bot..." >> $GITHUB_STEP_SUMMARY
+
+          timeout 25m npm start > bot_output.log 2>&1 || echo "Bot execution completed or timed out"
+
+          # Extract summary data from logs
+          COMMENTS_POSTED=$(grep -c "✅ Successfully commented" bot_output.log || echo "0")
+          FRIENDS_COMMENTS=$(grep -c "Processing friends feed" bot_output.log || echo "0")
+          VIDEO_COMMENTS=$(grep -c "Processing video feed" bot_output.log || echo "0")
+          
+          echo "- Comments posted: $COMMENTS_POSTED" >> $GITHUB_STEP_SUMMARY
+          echo "- Friends feed processed: $FRIENDS_COMMENTS times" >> $GITHUB_STEP_SUMMARY
+          echo "- Video feed processed: $VIDEO_COMMENTS times" >> $GITHUB_STEP_SUMMARY
+          echo "- Group commenting: **DISABLED** ✅" >> $GITHUB_STEP_SUMMARY
+          
+          # Show recent activity logs
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Recent Activity Logs:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -20 bot_output.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          
+          # Show errors if any
+          if grep -q "ERROR" bot_output.log; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ⚠️ Errors Found:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep "ERROR" bot_output.log | tail -5 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
           fi
-          echo "🚀 Starting Facebook Auto Comment Bot..."
-          timeout 25m npm start || echo "⚠️ Bot execution completed or timed out"
+          
         env:
           FACEBOOK_COOKIES: ${{ secrets.FACEBOOK_COOKIES }}
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
           NODE_ENV: production
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-      
+
       - name: Upload bot logs
         uses: actions/upload-artifact@v4
         if: always()
@@ -172,8 +180,9 @@ jobs:
           path: |
             logs/
             ceklink.txt
+            bot_output.log
           retention-days: 7
-      
+
       - name: Cleanup sensitive files
         if: always()
         run: |
