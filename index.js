@@ -12,7 +12,6 @@ class FacebookAutoCommentBot {
         this.browser = null;
         this.page = null;
         this.comments = [];
-        this.groupLinks = [];
         this.geminiApiKeys = [];
         this.currentApiKeyIndex = 0;
         this.commentedPosts = new Set();
@@ -25,7 +24,6 @@ class FacebookAutoCommentBot {
         const timestamp = new Date().toISOString();
         const logMessage = `[${timestamp}] [${level}] ${message}`;
         console.log(logMessage);
-        
         try {
             await fs.mkdir(path.dirname(this.logFile), { recursive: true });
             await fs.appendFile(this.logFile, logMessage + '\n');
@@ -52,25 +50,10 @@ class FacebookAutoCommentBot {
                 .split('---')
                 .map(comment => comment.trim())
                 .filter(comment => comment.length > 0);
-            
             await this.log(`Loaded ${this.comments.length} fallback comments`);
         } catch (error) {
             await this.log(`Error loading comments: ${error.message}`, 'ERROR');
             this.comments = ['Nice post! 👍', 'Great content!', 'Thanks for sharing! 😊'];
-        }
-    }
-
-    async loadGroupLinks() {
-        try {
-            const linksData = await fs.readFile('group_links.txt', 'utf-8');
-            this.groupLinks = linksData
-                .split('\n')
-                .map(link => link.trim())
-                .filter(link => link.length > 0 && link.startsWith('https://'));
-            
-            await this.log(`Loaded ${this.groupLinks.length} group links`);
-        } catch (error) {
-            await this.log(`Error loading group links: ${error.message}`, 'ERROR');
         }
     }
 
@@ -81,7 +64,6 @@ class FacebookAutoCommentBot {
                 .split('\n')
                 .map(key => key.trim())
                 .filter(key => key.length > 0);
-            
             await this.log(`Loaded ${this.geminiApiKeys.length} Gemini API keys`);
         } catch (error) {
             await this.log(`Error loading Gemini API keys: ${error.message}`, 'ERROR');
@@ -132,7 +114,6 @@ class FacebookAutoCommentBot {
                 const apiKey = this.geminiApiKeys[this.currentApiKeyIndex];
                 const genAI = new GoogleGenerativeAI(apiKey);
                 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-                
                 await this.log(`Trying Gemini API key #${this.currentApiKeyIndex + 1}`);
                 return { model, keyIndex: this.currentApiKeyIndex };
             } catch (error) {
@@ -141,40 +122,38 @@ class FacebookAutoCommentBot {
                 attempts++;
             }
         }
-        
+
         throw new Error('All Gemini API keys exhausted');
     }
 
     async generateContextualComment(postContent) {
         try {
             const { model } = await this.getGeminiAI();
-            
             // Enhanced prompt for contextual comments with call-to-action
             const prompt = `
-            Buatkan komentar yang relate dan natural untuk postingan Facebook berikut:
-            "${postContent}"
+Buatkan komentar yang relate dan natural untuk postingan Facebook berikut:
+"${postContent}"
 
-            Requirements:
-            - Komentar harus relate dengan konten postingan
-            - Gunakan bahasa Indonesia yang natural dan friendly
-            - Maksimal 2-3 kalimat
-            - Boleh gunakan emoji yang sesuai
-            - Tambahkan call-to-action ringan jika sesuai
-            - Hindari spam atau promosi berlebihan
-            - Buat komentar yang engaging dan authentic
+Requirements:
+- Komentar harus relate dengan konten postingan
+- Gunakan bahasa Indonesia yang natural dan friendly
+- Maksimal 2-3 kalimat
+- Boleh gunakan emoji yang sesuai
+- Tambahkan call-to-action ringan jika sesuai
+- Hindari spam atau promosi berlebihan
+- Buat komentar yang engaging dan authentic
 
-            Contoh style yang diinginkan:
-            - "Wah, strategi yang bagus! Memang TikTok Ads Manager jago banget untuk boost penjualan. Yuk dicoba! 🚀"
-            - "Setuju banget dengan tips ini! Sangat bermanfaat untuk yang lagi belajar marketing digital 👍"
-            `;
+Contoh style yang diinginkan:
+- "Wah, strategi yang bagus! Memang TikTok Ads Manager jago banget untuk boost penjualan. Yuk dicoba! 🚀"
+- "Setuju banget dengan tips ini! Sangat bermanfaat untuk yang lagi belajar marketing digital 👍"
+
+`;
 
             const result = await model.generateContent(prompt);
             const response = await result.response;
             const comment = response.text().trim();
-
             await this.log(`Generated contextual comment: "${comment.slice(0, 50)}..."`);
             return comment;
-
         } catch (error) {
             await this.log(`Error generating contextual comment: ${error.message}`, 'ERROR');
             // Fallback to predefined comments
@@ -192,7 +171,6 @@ class FacebookAutoCommentBot {
     async initBrowser() {
         try {
             await this.log('Initializing browser...');
-            
             this.browser = await puppeteer.launch({
                 headless: process.env.NODE_ENV === 'production',
                 args: [
@@ -207,13 +185,11 @@ class FacebookAutoCommentBot {
                     '--disable-features=VizDisplayCompositor'
                 ]
             });
-
             this.page = await this.browser.newPage();
             
             // Set viewport and user agent
             await this.page.setViewport({ width: 1366, height: 768 });
             await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-            
             await this.log('Browser initialized successfully');
         } catch (error) {
             await this.log(`Error initializing browser: ${error.message}`, 'ERROR');
@@ -229,22 +205,44 @@ class FacebookAutoCommentBot {
             await this.page.setCookie(...this.cookies);
             
             // Go to Facebook
-            await this.page.goto('https://facebook.com', { 
+            await this.page.goto('https://facebook.com', {
                 waitUntil: 'networkidle2',
-                timeout: 30000 
+                timeout: 30000
             });
-            
-            // Check if login was successful
-            const isLoggedIn = await this.page.$('[role="feed"]') || 
-                              await this.page.$('[data-pagelet="FeedUnit"]') ||
-                              await this.page.$('.feed');
-            
+
+            // Wait for page to load completely
+            await this.page.waitForTimeout(3000);
+
+            // Check if login was successful with multiple selectors
+            const feedSelectors = this.config.selectors.feed_selectors || [
+                '[role="feed"]',
+                '[data-pagelet="FeedUnit"]', 
+                '.feed',
+                '[data-pagelet*="NewsFeed"]',
+                'div[data-pagelet="NewsfeedUFI2CommentsRoot"]'
+            ];
+
+            let isLoggedIn = false;
+            for (const selector of feedSelectors) {
+                try {
+                    const element = await this.page.$(selector);
+                    if (element) {
+                        isLoggedIn = true;
+                        await this.log(`Login verified using selector: ${selector}`);
+                        break;
+                    }
+                } catch (e) {
+                    // Continue to next selector
+                }
+            }
+
             if (!isLoggedIn) {
+                // Take screenshot for debugging
+                await this.page.screenshot({ path: 'login-debug.png' });
                 throw new Error('Login verification failed - feed not found');
             }
-            
+
             await this.log('Login successful');
-            
         } catch (error) {
             await this.log(`Login failed: ${error.message}`, 'ERROR');
             throw error;
@@ -255,7 +253,6 @@ class FacebookAutoCommentBot {
         const minDelay = this.config.delays.min_delay * 1000;
         const maxDelay = this.config.delays.max_delay * 1000;
         const delay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
-        
         await this.log(`Waiting ${delay/1000} seconds...`);
         await new Promise(resolve => setTimeout(resolve, delay));
     }
@@ -293,7 +290,6 @@ class FacebookAutoCommentBot {
                     const cloned = el.cloneNode(true);
                     const scripts = cloned.querySelectorAll('script, style');
                     scripts.forEach(s => s.remove());
-                    
                     return cloned.textContent || cloned.innerText || '';
                 });
             }
@@ -320,27 +316,26 @@ class FacebookAutoCommentBot {
             for (const selector of idSelectors) {
                 try {
                     const element = await postElement.$(selector) || postElement;
-                    postId = await element.evaluate(el => 
+                    postId = await element.evaluate(el =>
                         el.getAttribute('aria-posinset') ||
                         el.getAttribute('data-pagelet') ||
                         el.getAttribute('data-ft') ||
                         el.id
                     );
-                    
                     if (postId) break;
                 } catch (e) {
                     // Continue to next method
                 }
             }
-            
+
             // If still no ID, generate one based on content
             if (!postId) {
-                const textContent = await postElement.evaluate(el => 
+                const textContent = await postElement.evaluate(el =>
                     (el.textContent || '').slice(0, 50)
                 );
                 postId = Buffer.from(textContent + Date.now()).toString('base64').slice(0, 20);
             }
-            
+
             return postId;
         } catch (error) {
             await this.log(`Error extracting post ID: ${error.message}`, 'ERROR');
@@ -351,7 +346,7 @@ class FacebookAutoCommentBot {
     async commentOnPost(postElement) {
         try {
             const postId = await this.extractPostId(postElement);
-            
+
             // Check if already commented
             if (this.commentedPosts.has(postId)) {
                 await this.log(`Skipping already commented post: ${postId}`);
@@ -369,7 +364,7 @@ class FacebookAutoCommentBot {
             // Find comment button with multiple selectors
             const commentButtonSelectors = [
                 '[aria-label*="Comment"]',
-                '[aria-label*="Komentar"]', 
+                '[aria-label*="Komentar"]',
                 '[data-testid="UFI2CommentsCount/root"]',
                 'div[role="button"]:has-text("Comment")',
                 'div[role="button"]:has-text("Komentar")'
@@ -440,7 +435,7 @@ class FacebookAutoCommentBot {
             await this.page.keyboard.down('Control');
             await this.page.keyboard.press('KeyA');
             await this.page.keyboard.up('Control');
-            
+
             // Type comment line by line if it contains newlines
             const lines = comment.split('\n');
             for (let i = 0; i < lines.length; i++) {
@@ -491,7 +486,7 @@ class FacebookAutoCommentBot {
                 await this.log('❌ Failed to submit comment', 'WARN');
                 return false;
             }
-            
+
         } catch (error) {
             await this.log(`Error commenting on post: ${error.message}`, 'ERROR');
             return false;
@@ -502,7 +497,6 @@ class FacebookAutoCommentBot {
         try {
             await this.log('Processing friends feed...');
             await this.page.goto('https://facebook.com', { waitUntil: 'networkidle2', timeout: 30000 });
-            
             return await this.processFeedPosts(this.config.comment_limits.friends_feed);
         } catch (error) {
             await this.log(`Error processing friends feed: ${error.message}`, 'ERROR');
@@ -514,43 +508,9 @@ class FacebookAutoCommentBot {
         try {
             await this.log('Processing video feed...');
             await this.page.goto('https://facebook.com/watch', { waitUntil: 'networkidle2', timeout: 30000 });
-            
             return await this.processFeedPosts(this.config.comment_limits.video_feed);
         } catch (error) {
             await this.log(`Error processing video feed: ${error.message}`, 'ERROR');
-            return 0;
-        }
-    }
-
-    async processGroupFeed() {
-        try {
-            await this.log('Processing group feeds...');
-            
-            let totalComments = 0;
-            const commentsPerGroup = Math.ceil(this.config.comment_limits.group_feed / this.groupLinks.length);
-
-            for (const groupLink of this.groupLinks) {
-                if (totalComments >= this.config.comment_limits.group_feed) break;
-
-                try {
-                    await this.log(`Processing group: ${groupLink}`);
-                    await this.page.goto(groupLink, { waitUntil: 'networkidle2', timeout: 30000 });
-                    
-                    const remainingComments = this.config.comment_limits.group_feed - totalComments;
-                    const commentsInThisGroup = await this.processFeedPosts(Math.min(commentsPerGroup, remainingComments));
-                    totalComments += commentsInThisGroup;
-                    
-                    if (totalComments < this.config.comment_limits.group_feed) {
-                        await this.randomDelay();
-                    }
-                } catch (error) {
-                    await this.log(`Error processing group ${groupLink}: ${error.message}`, 'ERROR');
-                }
-            }
-
-            return totalComments;
-        } catch (error) {
-            await this.log(`Error processing group feeds: ${error.message}`, 'ERROR');
             return 0;
         }
     }
@@ -594,11 +554,9 @@ class FacebookAutoCommentBot {
                     try {
                         await this.log(`Processing post ${i + 1}/${posts.length}`);
                         const success = await this.commentOnPost(posts[i]);
-                        
                         if (success) {
                             commentsPosted++;
                             await this.log(`✅ Comments posted so far: ${commentsPosted}/${maxComments}`);
-                            
                             if (commentsPosted < maxComments) {
                                 await this.randomDelay();
                             }
@@ -630,45 +588,40 @@ class FacebookAutoCommentBot {
     async run() {
         try {
             await this.log('🚀 Starting Facebook Auto Comment Bot with Gemini AI');
-            
+
             // Load all configuration and data
             await this.loadConfig();
             await this.loadComments();
-            await this.loadGroupLinks();
             await this.loadGeminiApiKeys();
             await this.loadCookies();
             await this.loadCommentedPosts();
-            
+
             // Initialize browser and login
             await this.initBrowser();
             await this.loginWithCookies();
-            
+
             let totalComments = 0;
-            
+
             // Process friends feed
             if (this.config.features.auto_comment_friend) {
                 await this.log('🎯 Processing friends feed...');
                 const comments = await this.processFriendsFeed();
                 totalComments += comments;
             }
-            
+
             // Process video feed
             if (this.config.features.auto_comment_video && totalComments < 15) {
                 await this.log('🎥 Processing video feed...');
                 const comments = await this.processVideoFeed();
                 totalComments += comments;
             }
-            
-            // Process groups (comments)
-            if (this.config.features.auto_comment_group && totalComments < 15) {
-                await this.log('👥 Processing group comments...');
-                const comments = await this.processGroupFeed();
-                totalComments += comments;
-            }
-            
+
+            // Group commenting feature is disabled
+            await this.log('👥 Group commenting feature is disabled');
+
             await this.log(`🎉 Bot completed successfully!`);
             await this.log(`📊 Total comments posted: ${totalComments}`);
-            
+
         } catch (error) {
             await this.log(`❌ Bot execution failed: ${error.message}`, 'ERROR');
             throw error;
