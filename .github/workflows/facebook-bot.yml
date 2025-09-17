@@ -67,26 +67,27 @@ jobs:
           npx puppeteer browsers install chrome
       
       - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libnss3 \
-            libatk-bridge2.0-0 \
-            libx11-xcb1 \
-            libxcomposite1 \
-            libxdamage1 \
-            libxrandr2 \
-            libgbm1 \
-            libxss1 \
-            libasound2 \
-            fonts-liberation \
-            libappindicator3-1 \
-            libdrm2 \
-            libgtk-3-0 \
-            libnspr4 \
-            libnss3 \
-            libxtst6 \
-            xdg-utils
+          run: |
+              sudo apt-get update
+              sudo apt-get install -y \
+              libnss3 \
+              libatk-bridge2.0-0 \
+              libx11-xcb1 \
+              libxcomposite1 \
+              libxdamage1 \
+              libxrandr2 \
+              libgbm1 \
+              libxss1 \
+              libasound2-data \
+              libasound2-plugins \
+              libasound2-plugins-pulse \
+              fonts-liberation \
+              libappindicator3-1 \
+              libdrm2 \
+              libgtk-3-0 \
+              libnspr4 \
+              libxtst6 \
+              xdg-utils
       
       - name: Create required directories and files
         run: |
