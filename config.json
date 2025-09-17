@@ -1,0 +1,31 @@
+{
+  "features": {
+    "auto_comment_friend": true,
+    "auto_comment_video": true,
+    "auto_comment_group": true
+  },
+  "comment_limits": {
+    "friends_feed": 5,
+    "video_feed": 3,
+    "group_feed": 4
+  },
+  "delays": {
+    "min_delay": 60,
+    "max_delay": 120
+  },
+  "gemini_ai": {
+    "model": "gemini-1.5-flash",
+    "use_contextual_comments": true,
+    "fallback_to_predefined": true
+  },
+  "selectors": {
+    "feed_posts": "[role='article'], [data-pagelet*='FeedUnit']",
+    "comment_button": "[aria-label*='Comment'], [aria-label*='Komentar']",
+    "comment_input": "[contenteditable='true'], [data-testid='comment-input']",
+    "submit_comment": "[aria-label*='Post'], [aria-label*='Kirim']"
+  },
+  "anti_duplicate": {
+    "log_file": "ceklink.txt",
+    "use_aria_posinset": true
+  }
+}

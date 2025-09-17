@@ -1,0 +1,4 @@
+# Anti-duplicate log file
+# Bot akan mencatat ID postingan yang sudah dikomentari di sini
+# Format: satu ID per baris
+# File ini akan otomatis terisi saat bot berjalan

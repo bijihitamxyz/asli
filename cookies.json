@@ -1,0 +1,47 @@
+[
+  {
+    "name": "c_user",
+    "value": "61560089441560",
+    "domain": ".facebook.com",
+    "path": "/",
+    "httpOnly": false,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "xs",
+    "value": "10%3AMN7wVIP8DtSjMA%3A2%3A1756480098%3A-1%3A-1%3A%3AAcUe_03sbvz0OxMXR8QUvTu5b8WU4v7II7lnpldllywERE",
+    "domain": ".facebook.com",
+    "path": "/",
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "datr",
+    "value": "YoPaUaFOoFUhjd6_oUwazbtQrLUE_HERE",
+    "domain": ".facebook.com",
+    "path": "/",
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "fr",
+    "value": "1uHlv4IbpPgceTcMy.AWdn5CVhfeZ4byIOseX7APCK2EsStcikuXuGp3XWGcXDK9vIL1U.Boyr_m..AAA.0.0.Boyr_m.AWfNl685l8Bvzs71hpCA2qY74SYRE",
+    "domain": ".facebook.com",
+    "path": "/",
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  },
+  {
+    "name": "sb",
+    "value": "qfaUaNDdk7FFOjuLcPT8x04Y",
+    "domain": ".facebook.com",
+    "path": "/",
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "None"
+  }
+]
