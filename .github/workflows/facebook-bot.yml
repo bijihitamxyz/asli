@@ -80,7 +80,6 @@ jobs:
             libxss1 \
             libasound2-data \
             libasound2-plugins \
-            libasound2-plugins-pulse \
             fonts-liberation \
             libappindicator3-1 \
             libdrm2 \
