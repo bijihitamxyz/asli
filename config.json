@@ -2,12 +2,12 @@
   "features": {
     "auto_comment_friend": true,
     "auto_comment_video": true,
-    "auto_comment_group": true
+    "auto_comment_group": false
   },
   "comment_limits": {
     "friends_feed": 5,
     "video_feed": 3,
-    "group_feed": 4
+    "group_feed": 0
   },
   "delays": {
     "min_delay": 60,
@@ -22,7 +22,14 @@
     "feed_posts": "[role='article'], [data-pagelet*='FeedUnit']",
     "comment_button": "[aria-label*='Comment'], [aria-label*='Komentar']",
     "comment_input": "[contenteditable='true'], [data-testid='comment-input']",
-    "submit_comment": "[aria-label*='Post'], [aria-label*='Kirim']"
+    "submit_comment": "[aria-label*='Post'], [aria-label*='Kirim']",
+    "feed_selectors": [
+      "[role='feed']",
+      "[data-pagelet='FeedUnit']", 
+      ".feed",
+      "[data-pagelet*='NewsFeed']",
+      "div[data-pagelet='NewsfeedUFI2CommentsRoot']"
+    ]
   },
   "anti_duplicate": {
     "log_file": "ceklink.txt",
