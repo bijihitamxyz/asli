@@ -2,13 +2,11 @@
   run: |
     mkdir -p logs
     touch ceklink.txt
-    
-    # Create group_links.txt even though groups are disabled
+    # Buat group_links.txt dummy agar bot/test.js tetap lolos validasi
     if [ ! -f group_links.txt ]; then
       echo "# Group links file (feature disabled)" > group_links.txt
       echo "https://www.facebook.com/groups/example" >> group_links.txt
     fi
-    
     if [ ! -f comments.txt ]; then
       echo "Nice post! 👍" > comments.txt
       echo "---" >> comments.txt
@@ -18,13 +16,10 @@
 - name: Setup Gemini API Keys
   run: |
     echo "${{ secrets.GEMINI_API_KEYS }}" > gemini_api_keys.txt
-    # Debug: show first few characters of each line
     echo "🔍 Debug - API Keys preview:"
     sed 's/^\(.\{10\}\).*/\1.../' gemini_api_keys.txt || echo "No API keys found"
-    
     KEY_COUNT=$(grep -c "^AIzaSy" gemini_api_keys.txt || echo "0")
     echo "🤖 Found $KEY_COUNT Gemini API keys"
-    
     if [ "$KEY_COUNT" -eq "0" ]; then
       echo "⚠️ No valid Gemini API keys found"
       echo "AIzaSyDUMMY_KEY_REPLACE_WITH_REAL_ONE" > gemini_api_keys.txt
@@ -33,11 +28,20 @@
 - name: Debug bot execution with timeout
   run: |
     echo "🚀 Starting bot with extended logging..."
-    
-    # Set longer timeout and capture all output
     timeout 30m npm start 2>&1 | tee bot_output.log || echo "⚠️ Bot execution completed or timed out after 30 minutes"
-    
     echo "📋 Bot execution summary:"
     echo "- Output file size: $(wc -c < bot_output.log || echo 0) bytes"
     echo "- Last few lines:"
     tail -10 bot_output.log || echo "No output captured"
+
+- name: Show commented post links in Step Summary
+  run: |
+    echo "" >> $GITHUB_STEP_SUMMARY
+    echo "### 🔗 Link postingan yang sudah dikomentari:" >> $GITHUB_STEP_SUMMARY
+    echo '```
+    if [ -s ceklink.txt ]; then
+      tail -20 ceklink.txt >> $GITHUB_STEP_SUMMARY
+    else
+      echo "Belum ada postingan yang dikomentari" >> $GITHUB_STEP_SUMMARY
+    fi
+    echo '```' >> $GITHUB_STEP_SUMMARY
