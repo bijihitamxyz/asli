@@ -50,15 +50,19 @@ jobs:
         run: |
           mkdir -p logs
           touch ceklink.txt
+          
           # Dummy file untuk validasi test.js
           if [ ! -f group_links.txt ]; then
             echo "# Group links file (feature disabled)" > group_links.txt
             echo "https://www.facebook.com/groups/example" >> group_links.txt
           fi
+          
           if [ ! -f comments.txt ]; then
             echo "Nice post! 👍" > comments.txt
             echo "---" >> comments.txt
             echo "Great content!" >> comments.txt
+            echo "---" >> comments.txt
+            echo "Sangat bermanfaat! 🚀" >> comments.txt
           fi
 
       - name: Setup Gemini API Keys
@@ -66,8 +70,10 @@ jobs:
           echo "${{ secrets.GEMINI_API_KEYS }}" > gemini_api_keys.txt
           echo "🔍 Debug - API Keys preview:"
           sed 's/^\(.\{10\}\).*/\1.../' gemini_api_keys.txt || echo "No API keys found"
+          
           KEY_COUNT=$(grep -c "^AIzaSy" gemini_api_keys.txt || echo "0")
           echo "🤖 Found $KEY_COUNT Gemini API keys"
+          
           if [ "$KEY_COUNT" -eq "0" ]; then
             echo "⚠️ No valid Gemini API keys found"
             echo "AIzaSyDUMMY_KEY_REPLACE_WITH_REAL_ONE" > gemini_api_keys.txt
@@ -87,26 +93,70 @@ jobs:
       - name: Run test
         run: npm test
 
-      - name: Run Facebook Bot with timeout
+      - name: Run Facebook Bot with enhanced logging
         run: |
-          echo "🚀 Starting bot with extended logging..."
+          echo "🚀 Starting Facebook Auto Comment Bot..."
+          echo "## 📊 Bot Execution Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Run ID: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Target: Friends Feed & Video Feed Only (Groups Disabled)" >> $GITHUB_STEP_SUMMARY
+          echo "- Started at: $(date)" >> $GITHUB_STEP_SUMMARY
+          
+          # Jalankan bot dengan timeout dan capture output
           timeout 30m npm start 2>&1 | tee bot_output.log || echo "⚠️ Bot execution completed or timed out after 30 minutes"
+          
+          # Extract summary data dari log
+          COMMENTS_POSTED=$(grep -c "✅ Successfully commented" bot_output.log 2>/dev/null || echo "0")
+          FRIENDS_PROCESSED=$(grep -c "Processing friends feed" bot_output.log 2>/dev/null || echo "0")
+          VIDEO_PROCESSED=$(grep -c "Processing video feed" bot_output.log 2>/dev/null || echo "0")
+          ERRORS_COUNT=$(grep -c "ERROR" bot_output.log 2>/dev/null || echo "0")
+          
+          echo "- Comments posted: $COMMENTS_POSTED" >> $GITHUB_STEP_SUMMARY
+          echo "- Friends feed processed: $FRIENDS_PROCESSED times" >> $GITHUB_STEP_SUMMARY
+          echo "- Video feed processed: $VIDEO_PROCESSED times" >> $GITHUB_STEP_SUMMARY
+          echo "- Errors encountered: $ERRORS_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- Group commenting: **DISABLED** ✅" >> $GITHUB_STEP_SUMMARY
+          
+          # Console output summary
           echo "📋 Bot execution summary:"
-          echo "- Output file size: $(wc -c < bot_output.log || echo 0) bytes"
-          echo "- Last few lines:"
-          tail -10 bot_output.log || echo "No output captured"
+          echo "- Comments posted: $COMMENTS_POSTED"
+          echo "- Output file size: $(wc -c < bot_output.log 2>/dev/null || echo 0) bytes"
+          echo "- Errors: $ERRORS_COUNT"
+          echo "- Last 10 lines:"
+          tail -10 bot_output.log 2>/dev/null || echo "No output captured"
 
-      - name: Show commented post links in Step Summary
+      - name: Show commented post links and activity summary
+        if: always()
         run: |
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔗 Link postingan yang sudah dikomentari:" >> $GITHUB_STEP_SUMMARY
-          echo '```
+          echo "### 🔗 Link Postingan yang Sudah Dikomentari:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           if [ -s ceklink.txt ]; then
+            echo "📋 20 postingan terakhir yang dikomentari:" >> $GITHUB_STEP_SUMMARY
             tail -20 ceklink.txt >> $GITHUB_STEP_SUMMARY
           else
-            echo "Belum ada postingan yang dikomentari" >> $GITHUB_STEP_SUMMARY
+            echo "Belum ada postingan yang dikomentari pada run ini" >> $GITHUB_STEP_SUMMARY
           fi
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          # Tampilkan recent activity logs
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Recent Activity Logs:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          if [ -f bot_output.log ]; then
+            tail -15 bot_output.log >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No bot output log found" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          # Tampilkan error jika ada
+          if [ -f bot_output.log ] && grep -q "ERROR" bot_output.log; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ⚠️ Errors Found:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            grep "ERROR" bot_output.log | tail -5 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Upload bot logs
         uses: actions/upload-artifact@v4
