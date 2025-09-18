@@ -1,47 +1,127 @@
-- name: Create required directories and files
-  run: |
-    mkdir -p logs
-    touch ceklink.txt
-    # Buat group_links.txt dummy agar bot/test.js tetap lolos validasi
-    if [ ! -f group_links.txt ]; then
-      echo "# Group links file (feature disabled)" > group_links.txt
-      echo "https://www.facebook.com/groups/example" >> group_links.txt
-    fi
-    if [ ! -f comments.txt ]; then
-      echo "Nice post! 👍" > comments.txt
-      echo "---" >> comments.txt
-      echo "Great content!" >> comments.txt
-    fi
+name: Facebook Auto Comment Bot
 
-- name: Setup Gemini API Keys
-  run: |
-    echo "${{ secrets.GEMINI_API_KEYS }}" > gemini_api_keys.txt
-    echo "🔍 Debug - API Keys preview:"
-    sed 's/^\(.\{10\}\).*/\1.../' gemini_api_keys.txt || echo "No API keys found"
-    KEY_COUNT=$(grep -c "^AIzaSy" gemini_api_keys.txt || echo "0")
-    echo "🤖 Found $KEY_COUNT Gemini API keys"
-    if [ "$KEY_COUNT" -eq "0" ]; then
-      echo "⚠️ No valid Gemini API keys found"
-      echo "AIzaSyDUMMY_KEY_REPLACE_WITH_REAL_ONE" > gemini_api_keys.txt
-    fi
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+    - cron: '0 2,14 * * *'
+  workflow_dispatch:
 
-- name: Debug bot execution with timeout
-  run: |
-    echo "🚀 Starting bot with extended logging..."
-    timeout 30m npm start 2>&1 | tee bot_output.log || echo "⚠️ Bot execution completed or timed out after 30 minutes"
-    echo "📋 Bot execution summary:"
-    echo "- Output file size: $(wc -c < bot_output.log || echo 0) bytes"
-    echo "- Last few lines:"
-    tail -10 bot_output.log || echo "No output captured"
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-- name: Show commented post links in Step Summary
-  run: |
-    echo "" >> $GITHUB_STEP_SUMMARY
-    echo "### 🔗 Link postingan yang sudah dikomentari:" >> $GITHUB_STEP_SUMMARY
-    echo '```
-    if [ -s ceklink.txt ]; then
-      tail -20 ceklink.txt >> $GITHUB_STEP_SUMMARY
-    else
-      echo "Belum ada postingan yang dikomentari" >> $GITHUB_STEP_SUMMARY
-    fi
-    echo '```' >> $GITHUB_STEP_SUMMARY
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npx puppeteer browsers install chrome
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libnss3 \
+            libatk-bridge2.0-0 \
+            libx11-xcb1 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            libgbm1 \
+            libxss1 \
+            libasound2-data \
+            libasound2-plugins \
+            fonts-liberation \
+            libappindicator3-1 \
+            libdrm2 \
+            libgtk-3-0 \
+            libnspr4 \
+            libxtst6 \
+            xdg-utils
+
+      - name: Create required directories and files
+        run: |
+          mkdir -p logs
+          touch ceklink.txt
+          # Dummy file untuk validasi test.js
+          if [ ! -f group_links.txt ]; then
+            echo "# Group links file (feature disabled)" > group_links.txt
+            echo "https://www.facebook.com/groups/example" >> group_links.txt
+          fi
+          if [ ! -f comments.txt ]; then
+            echo "Nice post! 👍" > comments.txt
+            echo "---" >> comments.txt
+            echo "Great content!" >> comments.txt
+          fi
+
+      - name: Setup Gemini API Keys
+        run: |
+          echo "${{ secrets.GEMINI_API_KEYS }}" > gemini_api_keys.txt
+          echo "🔍 Debug - API Keys preview:"
+          sed 's/^\(.\{10\}\).*/\1.../' gemini_api_keys.txt || echo "No API keys found"
+          KEY_COUNT=$(grep -c "^AIzaSy" gemini_api_keys.txt || echo "0")
+          echo "🤖 Found $KEY_COUNT Gemini API keys"
+          if [ "$KEY_COUNT" -eq "0" ]; then
+            echo "⚠️ No valid Gemini API keys found"
+            echo "AIzaSyDUMMY_KEY_REPLACE_WITH_REAL_ONE" > gemini_api_keys.txt
+          fi
+
+      - name: Setup Facebook Cookies
+        run: |
+          echo '${{ secrets.FACEBOOK_COOKIES }}' > cookies.json
+          if jq empty cookies.json 2>/dev/null; then
+            COOKIE_COUNT=$(jq '. | length' cookies.json)
+            echo "🍪 Loaded $COOKIE_COUNT Facebook cookies"
+          else
+            echo "❌ Invalid cookies format"
+            exit 1
+          fi
+
+      - name: Run test
+        run: npm test
+
+      - name: Run Facebook Bot with timeout
+        run: |
+          echo "🚀 Starting bot with extended logging..."
+          timeout 30m npm start 2>&1 | tee bot_output.log || echo "⚠️ Bot execution completed or timed out after 30 minutes"
+          echo "📋 Bot execution summary:"
+          echo "- Output file size: $(wc -c < bot_output.log || echo 0) bytes"
+          echo "- Last few lines:"
+          tail -10 bot_output.log || echo "No output captured"
+
+      - name: Show commented post links in Step Summary
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Link postingan yang sudah dikomentari:" >> $GITHUB_STEP_SUMMARY
+          echo '```
+          if [ -s ceklink.txt ]; then
+            tail -20 ceklink.txt >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Belum ada postingan yang dikomentari" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload bot logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bot-logs-${{ github.run_id }}
+          path: |
+            logs/
+            ceklink.txt
+            bot_output.log
+          retention-days: 7
+
+      - name: Cleanup sensitive files
+        if: always()
+        run: |
+          rm -f cookies.json
+          rm -f gemini_api_keys.txt
+          echo "🧹 Sensitive files cleaned up"
